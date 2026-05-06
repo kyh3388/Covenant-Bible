@@ -1,40 +1,46 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
 
 class AppTextStyles {
-  static const TextStyle appTitle = TextStyle(
+  static TextStyle get appTitle => GoogleFonts.notoSansKr(
     fontSize: 20,
-    fontWeight: FontWeight.w700,
+    fontWeight: FontWeight.w500,
     color: AppColors.topBarText,
     letterSpacing: -0.3,
   );
 
-  static const TextStyle versionLabel = TextStyle(
+  static TextStyle get versionLabel => GoogleFonts.notoSansKr(
     fontSize: 12,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w400,
     color: AppColors.topBarText,
   );
 
   static TextStyle verseNumber(double fontSize) {
-    return TextStyle(
-      fontSize: fontSize - 2,
-      fontWeight: FontWeight.w700,
+    return GoogleFonts.notoSansKr(
+      // 수정: 성구번호와 본문 폰트 크기는 동일
+      fontSize: fontSize,
+
+      // 수정: 성구번호는 굵기만 더 강하게
+      fontWeight: FontWeight.w500,
+
       color: AppColors.textPrimary,
-      height: 1.5,
+      height: 1.45,
     );
   }
 
   static TextStyle verseText(double fontSize) {
-    return TextStyle(
+    return GoogleFonts.notoSansKr(
       fontSize: fontSize,
-      height: 1.62,
-      letterSpacing: -0.25,
+      fontWeight: FontWeight.w400,
+      height: 1.45,
+      letterSpacing: -0.2,
       color: AppColors.textPrimary,
     );
   }
 
-  static const TextStyle sectionTitle = TextStyle(
+  static TextStyle get sectionTitle => GoogleFonts.notoSansKr(
     fontSize: 15,
     fontWeight: FontWeight.w700,
     color: AppColors.textSecondary,
@@ -42,15 +48,14 @@ class AppTextStyles {
   );
 
   static TextStyle noteText(double fontSize) {
-    return TextStyle(
+    return GoogleFonts.notoSansKr(
       fontSize: fontSize - 6,
+      fontWeight: FontWeight.w400,
       height: 1.45,
       color: AppColors.noteText,
     );
   }
 
-  static const TextStyle bottomAction = TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.w600,
-  );
+  static TextStyle get bottomAction =>
+      GoogleFonts.notoSansKr(fontSize: 14, fontWeight: FontWeight.w600);
 }

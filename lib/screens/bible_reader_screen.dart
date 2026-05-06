@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
 
-import '../database/bible_database.dart';
+import '../database/kjv_bible_database.dart';
+import '../database/ko_bible_database.dart';
 import '../models/bible_book.dart';
+import '../models/bible_display_mode.dart';
 import '../services/reader_theme_service.dart';
 import '../services/recent_read_service.dart';
 import '../widgets/bible_reader/bookmark/bookmark_list_sheet.dart';
+import '../widgets/bible_reader/layout/bible_reader_app_bar.dart';
+import '../widgets/bible_reader/layout/floating_reader_menu.dart';
+import '../widgets/bible_reader/layout/reader_bottom_bar.dart';
 import '../widgets/bible_reader/picker/bible_picker_result.dart';
 import '../widgets/bible_reader/picker/bible_picker_sheet.dart';
-import '../widgets/bible_reader/layout/bible_reader_app_bar.dart';
-import '../widgets/bible_reader/search/bible_search_sheet.dart';
 import '../widgets/bible_reader/reader/chapter_reader_page.dart';
-import '../widgets/bible_reader/layout/floating_reader_menu.dart';
-import '../widgets/bible_reader/theme/font_size_sheet.dart';
-import '../widgets/bible_reader/layout/reader_bottom_bar.dart';
-import '../widgets/bible_reader/theme/reader_theme_option.dart';
-import '../widgets/bible_reader/theme/reader_theme_sheet.dart';
+import '../widgets/bible_reader/search/bible_search_sheet.dart';
+import '../widgets/bible_reader/themes/font_size_sheet.dart';
+import '../widgets/bible_reader/themes/reader_theme_option.dart';
+import '../widgets/bible_reader/themes/reader_theme_sheet.dart';
 
 class BibleReaderScreen extends StatefulWidget {
   final BibleBook book;
@@ -59,6 +61,10 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
 
   double _horizontalDragDistance = 0;
 
+  BibleDisplayMode _displayMode = BibleDisplayMode.krv;
+
+  Map<int, KjvBibleBook> _kjvBooksById = {};
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +80,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     _loadFontSize();
     _loadThemeColor();
     _loadBodyBackgroundMode();
+    _loadKjvBooks();
 
     _saveRecentLocation(chapter: widget.chapter, verse: widget.initialVerse);
   }
@@ -84,8 +91,34 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     super.dispose();
   }
 
+  Future<void> _loadKjvBooks() async {
+    final books = await KjvBibleDatabase.instance.getBooks();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _kjvBooksById = {for (final book in books) book.bookId: book};
+    });
+  }
+
+  KjvBibleBook? get _currentKjvBook => _kjvBooksById[_currentBook.bookId];
+
   String get _titleText {
-    return '${_currentBook.nameKo} $_currentChapter장';
+    final kjvBook = _currentKjvBook;
+
+    switch (_displayMode) {
+      case BibleDisplayMode.krv:
+        return '${_currentBook.nameKo} $_currentChapter장';
+      case BibleDisplayMode.kjv:
+        return '${kjvBook?.shortName ?? _currentBook.nameKo} $_currentChapter';
+      case BibleDisplayMode.krvKjv:
+        if (kjvBook == null) {
+          return '${_currentBook.nameKo} $_currentChapter장';
+        }
+        return '${_currentBook.nameKo}(${kjvBook.shortName}) $_currentChapter장';
+    }
   }
 
   bool get _canGoPrevious {
@@ -263,7 +296,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       return;
     }
 
-    final previousBook = await BibleDatabase.instance.getBookById(
+    final previousBook = await KoBibleDatabase.instance.getBookById(
       _currentBook.bookId - 1,
     );
 
@@ -297,7 +330,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       return;
     }
 
-    final nextBook = await BibleDatabase.instance.getBookById(
+    final nextBook = await KoBibleDatabase.instance.getBookById(
       _currentBook.bookId + 1,
     );
 
@@ -376,6 +409,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
           currentBook: _currentBook,
           currentChapter: _currentChapter,
           backgroundColor: sheetBackgroundColor,
+          displayMode: _displayMode,
         );
       },
     );
@@ -430,6 +464,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
           backgroundColor: sheetBackgroundColor,
           currentBook: _currentBook,
           currentChapter: _currentChapter,
+          displayMode: _displayMode,
         );
       },
     );
@@ -439,6 +474,66 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
     }
 
     await _openReaderFromResult(result, selectVerse: true);
+  }
+
+  Future<void> _showDisplayModeBottomSheet() async {
+    final selectedMode = await showModalBottomSheet<BibleDisplayMode>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: _bodyBackgroundColor,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDisplayModeTile(
+                context: context,
+                mode: BibleDisplayMode.krv,
+                subtitle: '한글 책 목록 + 한글 본문',
+              ),
+              _buildDisplayModeTile(
+                context: context,
+                mode: BibleDisplayMode.kjv,
+                subtitle: '영어 책 목록 + 영어 본문',
+              ),
+              _buildDisplayModeTile(
+                context: context,
+                mode: BibleDisplayMode.krvKjv,
+                subtitle: '한글(영어) 책 목록 + 한/영 병기',
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selectedMode == null || selectedMode == _displayMode) {
+      return;
+    }
+
+    setState(() {
+      _displayMode = selectedMode;
+      _isReaderMenuOpen = false;
+    });
+  }
+
+  Widget _buildDisplayModeTile({
+    required BuildContext context,
+    required BibleDisplayMode mode,
+    required String subtitle,
+  }) {
+    final isSelected = _displayMode == mode;
+
+    return ListTile(
+      title: Text(mode.label),
+      subtitle: Text(subtitle),
+      trailing: isSelected ? Icon(Icons.check_rounded, color: _barColor) : null,
+      onTap: () {
+        Navigator.pop(context, mode);
+      },
+    );
   }
 
   void _showThemeColorBottomSheet() {
@@ -572,10 +667,12 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
       backgroundColor: bodyBackgroundColor,
       appBar: BibleReaderAppBar(
         titleText: _titleText,
+        versionText: _displayMode.label,
         barColor: barColor,
         barSoftColor: barSoftColor,
         barTextColor: barTextColor,
         onTitlePressed: _openBiblePicker,
+        onVersionPressed: _showDisplayModeBottomSheet,
       ),
       body: Stack(
         children: [
@@ -585,7 +682,9 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
             onHorizontalDragUpdate: _handleHorizontalDragUpdate,
             onHorizontalDragEnd: _handleHorizontalDragEnd,
             child: PageView.builder(
-              key: ValueKey('pageview-${_currentBook.bookId}'),
+              key: ValueKey(
+                'pageview-${_currentBook.bookId}-${_displayMode.name}',
+              ),
               controller: _pageController,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _currentBook.chapterCount,
@@ -595,7 +694,7 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
 
                 return ChapterReaderPage(
                   key: ValueKey(
-                    'chapter-${_currentBook.bookId}-$chapter-$_targetChapter-$_targetVerse-$_locationVersion',
+                    'chapter-${_currentBook.bookId}-$chapter-$_targetChapter-$_targetVerse-$_locationVersion-${_displayMode.name}',
                   ),
                   book: _currentBook,
                   chapter: chapter,
@@ -606,6 +705,9 @@ class _BibleReaderScreenState extends State<BibleReaderScreen> {
                       _selectTargetVerse && chapter == _targetChapter,
                   fontSize: _fontSize,
                   bodyBackgroundColor: bodyBackgroundColor,
+                  displayMode: _displayMode,
+                  kjvBookNameEn: _currentKjvBook?.nameEn,
+                  kjvBookShortName: _currentKjvBook?.shortName,
                   onVerseSelected: _handleVerseSelected,
                 );
               },

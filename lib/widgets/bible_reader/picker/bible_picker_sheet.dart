@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../database/bible_database.dart';
+import '../../../database/kjv_bible_database.dart';
+import '../../../database/ko_bible_database.dart';
 import '../../../models/bible_book.dart';
-import '../../../models/bible_verse.dart';
+import '../../../models/bible_display_mode.dart';
 import '../../../theme/app_colors.dart';
 import 'bible_picker_header.dart';
 import 'bible_picker_result.dart';
@@ -15,12 +16,14 @@ class BiblePickerSheet extends StatefulWidget {
   final BibleBook currentBook;
   final int currentChapter;
   final Color backgroundColor;
+  final BibleDisplayMode displayMode;
 
   const BiblePickerSheet({
     super.key,
     required this.currentBook,
     required this.currentChapter,
     required this.backgroundColor,
+    required this.displayMode,
   });
 
   @override
@@ -28,29 +31,75 @@ class BiblePickerSheet extends StatefulWidget {
 }
 
 class _BiblePickerSheetState extends State<BiblePickerSheet> {
-  late Future<List<BibleBook>> _booksFuture;
+  static const double _bookRowHeight = 56.0;
+
+  late Future<List<BibleBook>> _koBooksFuture;
+  late Future<Map<int, KjvBibleBook>> _kjvBooksByIdFuture;
   late BibleTestamentGroup _selectedTestamentGroup;
+
+  final ScrollController _bookListScrollController = ScrollController();
 
   BibleBook? _selectedBook;
   int? _selectedChapter;
-  Future<List<BibleVerse>>? _versesFuture;
+  Future<List<int>>? _verseNumbersFuture;
+
+  bool _didInitialJump = false;
+  bool _ignoreNextScrollSync = false;
 
   @override
   void initState() {
     super.initState();
 
-    _booksFuture = BibleDatabase.instance.getBooks();
+    _koBooksFuture = KoBibleDatabase.instance.getBooks();
+    _kjvBooksByIdFuture = KjvBibleDatabase.instance.getBooks().then((books) {
+      return {for (final book in books) book.bookId: book};
+    });
 
     _selectedTestamentGroup = widget.currentBook.bookId <= 39
         ? BibleTestamentGroup.oldTestament
         : BibleTestamentGroup.newTestament;
+
+    _bookListScrollController.addListener(_handleBookListScroll);
+  }
+
+  @override
+  void dispose() {
+    _bookListScrollController.removeListener(_handleBookListScroll);
+    _bookListScrollController.dispose();
+    super.dispose();
+  }
+
+  void _handleBookListScroll() {
+    if (_ignoreNextScrollSync) {
+      return;
+    }
+
+    if (!_bookListScrollController.hasClients) {
+      return;
+    }
+
+    final offset = _bookListScrollController.offset;
+    final firstVisibleIndex = (offset / _bookRowHeight).floor();
+
+    final nextGroup = firstVisibleIndex >= 39
+        ? BibleTestamentGroup.newTestament
+        : BibleTestamentGroup.oldTestament;
+
+    if (nextGroup != _selectedTestamentGroup && mounted) {
+      setState(() {
+        _selectedTestamentGroup = nextGroup;
+      });
+    }
   }
 
   void _selectBook(BibleBook book) {
     setState(() {
       _selectedBook = book;
       _selectedChapter = null;
-      _versesFuture = null;
+      _verseNumbersFuture = null;
+      _selectedTestamentGroup = book.bookId <= 39
+          ? BibleTestamentGroup.oldTestament
+          : BibleTestamentGroup.newTestament;
     });
   }
 
@@ -63,18 +112,31 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
 
     setState(() {
       _selectedChapter = chapter;
-      _versesFuture = BibleDatabase.instance.getVerses(
-        bookId: book.bookId,
+      _verseNumbersFuture = _loadVerseNumbers(book.bookId, chapter);
+    });
+  }
+
+  Future<List<int>> _loadVerseNumbers(int bookId, int chapter) async {
+    if (widget.displayMode.isEnglishOnly) {
+      final verses = await KjvBibleDatabase.instance.getVerses(
+        bookId: bookId,
         chapter: chapter,
       );
-    });
+      return verses.map((verse) => verse.verse).toList();
+    }
+
+    final verses = await KoBibleDatabase.instance.getVerses(
+      bookId: bookId,
+      chapter: chapter,
+    );
+    return verses.map((verse) => verse.verse).toList();
   }
 
   void _backStep() {
     if (_selectedChapter != null) {
       setState(() {
         _selectedChapter = null;
-        _versesFuture = null;
+        _verseNumbersFuture = null;
       });
       return;
     }
@@ -83,12 +145,12 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
       setState(() {
         _selectedBook = null;
         _selectedChapter = null;
-        _versesFuture = null;
+        _verseNumbersFuture = null;
       });
     }
   }
 
-  void _completeSelection(BibleVerse verse) {
+  void _completeSelection(int verseNumber) {
     final book = _selectedBook;
     final chapter = _selectedChapter;
 
@@ -98,20 +160,103 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
 
     Navigator.pop(
       context,
-      BiblePickerResult(book: book, chapter: chapter, verse: verse.verse),
+      BiblePickerResult(book: book, chapter: chapter, verse: verseNumber),
     );
   }
 
-  String get _stepTitle {
+  String _buildBookLabel(BibleBook koBook, KjvBibleBook? kjvBook) {
+    switch (widget.displayMode) {
+      case BibleDisplayMode.krv:
+        return '${koBook.nameKo}(${koBook.shortName})';
+      case BibleDisplayMode.kjv:
+        if (kjvBook == null) {
+          return koBook.nameKo;
+        }
+        return '${kjvBook.nameEn}(${kjvBook.shortName})';
+      case BibleDisplayMode.krvKjv:
+        if (kjvBook == null) {
+          return koBook.nameKo;
+        }
+        return '${koBook.nameKo}(${kjvBook.nameEn})';
+    }
+  }
+
+  String _buildStepBookLabel(BibleBook koBook, KjvBibleBook? kjvBook) {
+    switch (widget.displayMode) {
+      case BibleDisplayMode.krv:
+        return koBook.nameKo;
+      case BibleDisplayMode.kjv:
+        return kjvBook?.nameEn ?? koBook.nameKo;
+      case BibleDisplayMode.krvKjv:
+        return kjvBook == null
+            ? koBook.nameKo
+            : '${koBook.nameKo}(${kjvBook.shortName})';
+    }
+  }
+
+  String _stepTitle(Map<int, KjvBibleBook> kjvBooksById) {
     if (_selectedBook == null) {
       return '';
     }
 
+    final kjvBook = kjvBooksById[_selectedBook!.bookId];
+    final bookLabel = _buildStepBookLabel(_selectedBook!, kjvBook);
+
     if (_selectedChapter == null) {
-      return '${_selectedBook!.nameKo} 장 선택';
+      return '$bookLabel 장 선택';
     }
 
-    return '${_selectedBook!.nameKo} $_selectedChapter장 절 선택';
+    return '$bookLabel ${_selectedChapter!}장 절 선택';
+  }
+
+  void _jumpToBookIndex(int index) {
+    if (!_bookListScrollController.hasClients) {
+      return;
+    }
+
+    final maxScroll = _bookListScrollController.position.maxScrollExtent;
+    final targetOffset = (index * _bookRowHeight).clamp(0.0, maxScroll);
+
+    _ignoreNextScrollSync = true;
+    _bookListScrollController.jumpTo(targetOffset);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ignoreNextScrollSync = false;
+      _handleBookListScroll();
+    });
+  }
+
+  void _jumpToOldTestament() {
+    setState(() {
+      _selectedTestamentGroup = BibleTestamentGroup.oldTestament;
+    });
+
+    _jumpToBookIndex(0);
+  }
+
+  void _jumpToNewTestament() {
+    setState(() {
+      _selectedTestamentGroup = BibleTestamentGroup.newTestament;
+    });
+
+    _jumpToBookIndex(39);
+  }
+
+  void _jumpToCurrentBookInitially() {
+    if (_didInitialJump) {
+      return;
+    }
+
+    _didInitialJump = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_bookListScrollController.hasClients) {
+        return;
+      }
+
+      final currentIndex = widget.currentBook.bookId - 1;
+      _jumpToBookIndex(currentIndex);
+    });
   }
 
   @override
@@ -130,32 +275,39 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
             18,
             bottomSafePadding + 18,
           ),
-          child: Column(
-            children: [
-              if (!isBookStep) ...[
-                BiblePickerHeader(
-                  title: _stepTitle,
-                  canGoBack: _selectedBook != null,
-                  onBackPressed: _backStep,
-                ),
-                const SizedBox(height: 10),
-              ],
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  child: _buildCurrentStep(),
-                ),
-              ),
-            ],
+          child: FutureBuilder<Map<int, KjvBibleBook>>(
+            future: _kjvBooksByIdFuture,
+            builder: (context, kjvSnapshot) {
+              final kjvBooksById = kjvSnapshot.data ?? <int, KjvBibleBook>{};
+
+              return Column(
+                children: [
+                  if (!isBookStep) ...[
+                    BiblePickerHeader(
+                      title: _stepTitle(kjvBooksById),
+                      canGoBack: _selectedBook != null,
+                      onBackPressed: _backStep,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: _buildCurrentStep(kjvBooksById),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  Widget _buildCurrentStep() {
+  Widget _buildCurrentStep(Map<int, KjvBibleBook> kjvBooksById) {
     if (_selectedBook == null) {
-      return _buildBookStep();
+      return _buildBookStep(kjvBooksById);
     }
 
     if (_selectedChapter == null) {
@@ -165,11 +317,11 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
     return _buildVerseStep();
   }
 
-  Widget _buildBookStep() {
+  Widget _buildBookStep(Map<int, KjvBibleBook> kjvBooksById) {
     final bottomSafePadding = MediaQuery.viewPaddingOf(context).bottom;
 
     return FutureBuilder<List<BibleBook>>(
-      future: _booksFuture,
+      future: _koBooksFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -185,13 +337,7 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
           return const Center(child: Text('성경 책 데이터가 없습니다.'));
         }
 
-        final visibleBooks = books.where((book) {
-          if (_selectedTestamentGroup == BibleTestamentGroup.oldTestament) {
-            return book.bookId <= 39;
-          }
-
-          return book.bookId >= 40;
-        }).toList();
+        _jumpToCurrentBookInitially();
 
         return Column(
           children: [
@@ -205,12 +351,7 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
                       isSelected:
                           _selectedTestamentGroup ==
                           BibleTestamentGroup.oldTestament,
-                      onTap: () {
-                        setState(() {
-                          _selectedTestamentGroup =
-                              BibleTestamentGroup.oldTestament;
-                        });
-                      },
+                      onTap: _jumpToOldTestament,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -220,28 +361,23 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
                       isSelected:
                           _selectedTestamentGroup ==
                           BibleTestamentGroup.newTestament,
-                      onTap: () {
-                        setState(() {
-                          _selectedTestamentGroup =
-                              BibleTestamentGroup.newTestament;
-                        });
-                      },
+                      onTap: _jumpToNewTestament,
                     ),
                   ),
                 ],
               ),
             ),
             Expanded(
-              child: ListView.separated(
-                key: ValueKey('book_step_${_selectedTestamentGroup.index}'),
+              child: ListView.builder(
+                key: ValueKey('book_step_${widget.displayMode.name}'),
+                controller: _bookListScrollController,
                 padding: EdgeInsets.only(bottom: bottomSafePadding + 16),
-                itemCount: visibleBooks.length,
-                separatorBuilder: (context, index) {
-                  return const SizedBox.shrink();
-                },
+                itemCount: books.length,
+                itemExtent: _bookRowHeight,
                 itemBuilder: (context, index) {
-                  final book = visibleBooks[index];
-                  final isCurrent = book.bookId == widget.currentBook.bookId;
+                  final koBook = books[index];
+                  final kjvBook = kjvBooksById[koBook.bookId];
+                  final isCurrent = koBook.bookId == widget.currentBook.bookId;
 
                   return Material(
                     color: Colors.transparent,
@@ -255,15 +391,13 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
                         alpha: 0.10,
                       ),
                       onTap: () {
-                        _selectBook(book);
+                        _selectBook(koBook);
                       },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 8,
-                        ),
+                      child: Container(
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
                         child: Text(
-                          '${book.nameKo}(${book.shortName})',
+                          _buildBookLabel(koBook, kjvBook),
                           style: TextStyle(
                             fontSize: 18,
                             height: 1.25,
@@ -289,7 +423,6 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
 
   Widget _buildChapterStep(BibleBook book) {
     final bottomSafePadding = MediaQuery.viewPaddingOf(context).bottom;
-
     final chapters = List.generate(book.chapterCount, (index) => index + 1);
 
     return GridView.builder(
@@ -321,15 +454,14 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
 
   Widget _buildVerseStep() {
     final bottomSafePadding = MediaQuery.viewPaddingOf(context).bottom;
+    final verseNumbersFuture = _verseNumbersFuture;
 
-    final versesFuture = _versesFuture;
-
-    if (versesFuture == null) {
+    if (verseNumbersFuture == null) {
       return const Center(child: Text('절 데이터를 불러오지 못했습니다.'));
     }
 
-    return FutureBuilder<List<BibleVerse>>(
-      future: versesFuture,
+    return FutureBuilder<List<int>>(
+      future: verseNumbersFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -339,16 +471,16 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
           return Center(child: Text('오류 발생: ${snapshot.error}'));
         }
 
-        final verses = snapshot.data ?? [];
+        final verseNumbers = snapshot.data ?? [];
 
-        if (verses.isEmpty) {
+        if (verseNumbers.isEmpty) {
           return const Center(child: Text('절 데이터가 없습니다.'));
         }
 
         return GridView.builder(
           key: const ValueKey('verse_step'),
           padding: EdgeInsets.only(top: 4, bottom: bottomSafePadding + 24),
-          itemCount: verses.length,
+          itemCount: verseNumbers.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 5,
             mainAxisSpacing: 10,
@@ -356,13 +488,13 @@ class _BiblePickerSheetState extends State<BiblePickerSheet> {
             childAspectRatio: 1.2,
           ),
           itemBuilder: (context, index) {
-            final verse = verses[index];
+            final verseNumber = verseNumbers[index];
 
             return PickerNumberButton(
-              label: '${verse.verse}',
+              label: '$verseNumber',
               isSelected: false,
               onTap: () {
-                _completeSelection(verse);
+                _completeSelection(verseNumber);
               },
             );
           },

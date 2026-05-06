@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../database/bible_database.dart';
+import '../../../database/ko_bible_database.dart';
 import '../../../models/bible_book.dart';
 import '../../../models/bible_bookmark_group.dart';
 import '../../../models/bible_bookmark_verse.dart';
+import '../../../models/bible_display_mode.dart';
 import '../../../theme/app_colors.dart';
 import '../picker/bible_picker_result.dart';
 import '../picker/bible_picker_sheet.dart';
@@ -12,12 +13,14 @@ class BookmarkListSheet extends StatefulWidget {
   final Color backgroundColor;
   final BibleBook currentBook;
   final int currentChapter;
+  final BibleDisplayMode displayMode;
 
   const BookmarkListSheet({
     super.key,
     required this.backgroundColor,
     required this.currentBook,
     required this.currentChapter,
+    required this.displayMode,
   });
 
   @override
@@ -47,7 +50,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
   @override
   void initState() {
     super.initState();
-    _bookmarkGroupsFuture = BibleDatabase.instance.getBookmarkGroups();
+    _bookmarkGroupsFuture = KoBibleDatabase.instance.getBookmarkGroups();
   }
 
   @override
@@ -61,12 +64,12 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
 
   void _refreshGroups() {
     setState(() {
-      _bookmarkGroupsFuture = BibleDatabase.instance.getBookmarkGroups();
+      _bookmarkGroupsFuture = KoBibleDatabase.instance.getBookmarkGroups();
     });
   }
 
   Future<void> _refreshSelectedGroupAndVerses(int bookmarkGroupId) async {
-    final updatedGroup = await BibleDatabase.instance.getBookmarkGroupById(
+    final updatedGroup = await KoBibleDatabase.instance.getBookmarkGroupById(
       bookmarkGroupId,
     );
 
@@ -76,10 +79,10 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
 
     setState(() {
       _selectedGroup = updatedGroup;
-      _bookmarkGroupsFuture = BibleDatabase.instance.getBookmarkGroups();
+      _bookmarkGroupsFuture = KoBibleDatabase.instance.getBookmarkGroups();
 
       if (updatedGroup != null) {
-        _bookmarkVersesFuture = BibleDatabase.instance.getBookmarkVerses(
+        _bookmarkVersesFuture = KoBibleDatabase.instance.getBookmarkVerses(
           bookmarkGroupId: updatedGroup.bookmarkGroupId,
         );
       } else {
@@ -94,7 +97,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
 
     setState(() {
       _selectedGroup = group;
-      _bookmarkVersesFuture = BibleDatabase.instance.getBookmarkVerses(
+      _bookmarkVersesFuture = KoBibleDatabase.instance.getBookmarkVerses(
         bookmarkGroupId: group.bookmarkGroupId,
       );
     });
@@ -121,7 +124,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
   }
 
   Future<void> _openBookmarkVerse(BibleBookmarkVerse bookmarkVerse) async {
-    final BibleBook? book = await BibleDatabase.instance.getBookById(
+    final BibleBook? book = await KoBibleDatabase.instance.getBookById(
       bookmarkVerse.bookId,
     );
 
@@ -188,11 +191,10 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
     });
 
     try {
-      final bookmarkGroupId = await BibleDatabase.instance.createBookmarkGroup(
-        name,
-      );
+      final bookmarkGroupId = await KoBibleDatabase.instance
+          .createBookmarkGroup(name);
 
-      final createdGroup = await BibleDatabase.instance.getBookmarkGroupById(
+      final createdGroup = await KoBibleDatabase.instance.getBookmarkGroupById(
         bookmarkGroupId,
       );
 
@@ -205,11 +207,11 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
         _createController.clear();
         _createFocusNode.unfocus();
 
-        _bookmarkGroupsFuture = BibleDatabase.instance.getBookmarkGroups();
+        _bookmarkGroupsFuture = KoBibleDatabase.instance.getBookmarkGroups();
 
         if (createdGroup != null) {
           _selectedGroup = createdGroup;
-          _bookmarkVersesFuture = BibleDatabase.instance.getBookmarkVerses(
+          _bookmarkVersesFuture = KoBibleDatabase.instance.getBookmarkVerses(
             bookmarkGroupId: createdGroup.bookmarkGroupId,
           );
         }
@@ -241,7 +243,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
     });
 
     try {
-      await BibleDatabase.instance.removeBookmarkVerse(
+      await KoBibleDatabase.instance.removeBookmarkVerse(
         bookmarkVerseId: bookmarkVerse.bookmarkVerseId,
       );
 
@@ -333,7 +335,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
     });
 
     try {
-      await BibleDatabase.instance.updateBookmarkGroupName(
+      await KoBibleDatabase.instance.updateBookmarkGroupName(
         bookmarkGroupId: group.bookmarkGroupId,
         name: newName,
       );
@@ -358,7 +360,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
         _editingGroup = null;
         _renameController.clear();
         _renameFocusNode.unfocus();
-        _bookmarkGroupsFuture = BibleDatabase.instance.getBookmarkGroups();
+        _bookmarkGroupsFuture = KoBibleDatabase.instance.getBookmarkGroups();
       });
 
       _showMessage('북마크 이름을 수정했습니다.');
@@ -420,7 +422,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
     });
 
     try {
-      await BibleDatabase.instance.deleteBookmarkGroup(group.bookmarkGroupId);
+      await KoBibleDatabase.instance.deleteBookmarkGroup(group.bookmarkGroupId);
 
       if (!mounted) {
         return;
@@ -438,7 +440,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
           _renameFocusNode.unfocus();
         }
 
-        _bookmarkGroupsFuture = BibleDatabase.instance.getBookmarkGroups();
+        _bookmarkGroupsFuture = KoBibleDatabase.instance.getBookmarkGroups();
       });
 
       _showMessage('북마크를 삭제했습니다.');
@@ -499,6 +501,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
           currentBook: widget.currentBook,
           currentChapter: widget.currentChapter,
           backgroundColor: widget.backgroundColor,
+          displayMode: widget.displayMode,
         );
       },
     );
@@ -512,7 +515,7 @@ class _BookmarkListSheetState extends State<BookmarkListSheet> {
     });
 
     try {
-      await BibleDatabase.instance.addBookmarkVersesToGroup(
+      await KoBibleDatabase.instance.addBookmarkVersesToGroup(
         bookmarkGroupId: selectedGroup.bookmarkGroupId,
         bookId: result.book.bookId,
         chapter: result.chapter,

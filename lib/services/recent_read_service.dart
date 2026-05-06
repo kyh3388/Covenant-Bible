@@ -22,7 +22,9 @@ class RecentReadService {
   static const int defaultBookId = 1;
   static const int defaultChapter = 1;
   static const int defaultVerse = 1;
-  static const double defaultFontSize = 20.0;
+
+  // 수정: 앱 첫 설치 후 첫 실행 기본 폰트 크기
+  static const double defaultFontSize = 16.0;
 
   Future<void> saveRecentLocation({
     required int bookId,

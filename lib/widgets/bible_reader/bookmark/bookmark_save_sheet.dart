@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../database/bible_database.dart';
+import '../../../database/ko_bible_database.dart';
 import '../../../models/bible_bookmark_group.dart';
 import '../../../theme/app_colors.dart';
 
@@ -44,7 +44,7 @@ class _BookmarkSaveSheetState extends State<BookmarkSaveSheet> {
   @override
   void initState() {
     super.initState();
-    _bookmarkGroupsFuture = BibleDatabase.instance.getBookmarkGroups();
+    _bookmarkGroupsFuture = KoBibleDatabase.instance.getBookmarkGroups();
   }
 
   @override
@@ -83,11 +83,10 @@ class _BookmarkSaveSheetState extends State<BookmarkSaveSheet> {
     });
 
     try {
-      final bookmarkGroupId = await BibleDatabase.instance.createBookmarkGroup(
-        name,
-      );
+      final bookmarkGroupId = await KoBibleDatabase.instance
+          .createBookmarkGroup(name);
 
-      await BibleDatabase.instance.addBookmarkVersesToGroup(
+      await KoBibleDatabase.instance.addBookmarkVersesToGroup(
         bookmarkGroupId: bookmarkGroupId,
         bookId: widget.bookId,
         chapter: widget.chapter,
@@ -136,7 +135,7 @@ class _BookmarkSaveSheetState extends State<BookmarkSaveSheet> {
     });
 
     try {
-      await BibleDatabase.instance.addBookmarkVersesToGroup(
+      await KoBibleDatabase.instance.addBookmarkVersesToGroup(
         bookmarkGroupId: group.bookmarkGroupId,
         bookId: widget.bookId,
         chapter: widget.chapter,

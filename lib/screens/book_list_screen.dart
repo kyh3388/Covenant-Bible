@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../database/bible_database.dart';
+import '../database/ko_bible_database.dart';
 import '../models/bible_book.dart';
 import 'chapter_list_screen.dart';
 
@@ -19,7 +19,7 @@ class _BookListScreenState extends State<BookListScreen> {
   @override
   void initState() {
     super.initState();
-    _booksFuture = BibleDatabase.instance.getBooks();
+    _booksFuture = KoBibleDatabase.instance.getBooks();
   }
 
   @override

@@ -15,7 +15,7 @@ plugins {
 }
 
 android {
-    namespace = "com.kyh.covenantbible"
+    namespace = "com.kyh.covenant_bible"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -40,7 +40,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.kyh.covenantbible"
+        applicationId = "com.kyh.covenant_bible"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../database/bible_database.dart';
+import '../../../database/kjv_bible_database.dart';
+import '../../../database/ko_bible_database.dart';
 import '../../../models/bible_book.dart';
+import '../../../models/bible_display_mode.dart';
 import '../../../models/bible_note.dart';
+import '../../../models/bible_section_title.dart';
 import '../../../models/bible_verse.dart';
 import '../../../theme/app_colors.dart';
 import '../../../theme/app_text_styles.dart';
 import '../bookmark/bookmark_save_sheet.dart';
-import 'chapter_content_data.dart';
 import 'displayed_verse_data.dart';
 import 'note_block.dart';
 import 'section_title_block.dart';
@@ -22,6 +24,9 @@ class ChapterReaderPage extends StatefulWidget {
   final bool selectInitialVerse;
   final double fontSize;
   final Color bodyBackgroundColor;
+  final BibleDisplayMode displayMode;
+  final String? kjvBookNameEn;
+  final String? kjvBookShortName;
   final void Function({required int chapter, required int verse})
   onVerseSelected;
 
@@ -35,6 +40,9 @@ class ChapterReaderPage extends StatefulWidget {
     required this.shouldScrollToInitialVerse,
     required this.fontSize,
     required this.bodyBackgroundColor,
+    required this.displayMode,
+    required this.kjvBookNameEn,
+    required this.kjvBookShortName,
     required this.onVerseSelected,
   });
 
@@ -43,7 +51,7 @@ class ChapterReaderPage extends StatefulWidget {
 }
 
 class _ChapterReaderPageState extends State<ChapterReaderPage> {
-  late Future<ChapterContentData> _chapterContentFuture;
+  late Future<_ChapterRenderData> _chapterContentFuture;
 
   final Map<int, GlobalKey> _verseKeys = {};
   bool _hasScrolledToInitialVerse = false;
@@ -69,40 +77,69 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
         oldWidget.activeChapter != widget.activeChapter &&
         widget.activeChapter != widget.chapter;
 
-    if (movedAwayFromThisChapter) {
-      if (_selectedVerses.isNotEmpty) {
-        setState(() {
-          _selectedVerses.clear();
-        });
-      }
+    if (movedAwayFromThisChapter && _selectedVerses.isNotEmpty) {
+      setState(() {
+        _selectedVerses.clear();
+      });
+    }
+
+    final contentChanged =
+        oldWidget.book.bookId != widget.book.bookId ||
+        oldWidget.chapter != widget.chapter ||
+        oldWidget.displayMode != widget.displayMode;
+
+    if (contentChanged) {
+      _hasScrolledToInitialVerse = false;
+      _verseKeys.clear();
+      _chapterContentFuture = _loadChapterContent();
     }
   }
 
-  Future<ChapterContentData> _loadChapterContent() async {
-    final verses = await BibleDatabase.instance.getVerses(
-      bookId: widget.book.bookId,
-      chapter: widget.chapter,
-    );
+  Future<_ChapterRenderData> _loadChapterContent() async {
+    List<BibleVerse> koVerses = [];
+    List<KjvBibleVerse> kjvVerses = [];
+    Map<int, List<BibleNote>> notesByVerse = {};
+    Map<int, List<BibleSectionTitle>> sectionTitlesByVerse = {};
 
-    final notesByVerse = await BibleDatabase.instance.getNotesGroupedByVerse(
-      bookId: widget.book.bookId,
-      chapter: widget.chapter,
-    );
+    if (!widget.displayMode.isEnglishOnly) {
+      koVerses = await KoBibleDatabase.instance.getVerses(
+        bookId: widget.book.bookId,
+        chapter: widget.chapter,
+      );
 
-    final sectionTitlesByVerse = await BibleDatabase.instance
-        .getSectionTitlesGroupedByVerse(
-          bookId: widget.book.bookId,
-          chapter: widget.chapter,
-        );
+      notesByVerse = await KoBibleDatabase.instance.getNotesGroupedByVerse(
+        bookId: widget.book.bookId,
+        chapter: widget.chapter,
+      );
 
-    return ChapterContentData(
-      verses: verses,
+      sectionTitlesByVerse = await KoBibleDatabase.instance
+          .getSectionTitlesGroupedByVerse(
+            bookId: widget.book.bookId,
+            chapter: widget.chapter,
+          );
+    }
+
+    if (!widget.displayMode.isKoreanOnly) {
+      kjvVerses = await KjvBibleDatabase.instance.getVerses(
+        bookId: widget.book.bookId,
+        chapter: widget.chapter,
+      );
+    }
+
+    final verseNumbers = widget.displayMode.isEnglishOnly
+        ? kjvVerses.map((verse) => verse.verse).toList()
+        : koVerses.map((verse) => verse.verse).toList();
+
+    return _ChapterRenderData(
+      verseNumbers: verseNumbers,
+      koVersesByNumber: {for (final verse in koVerses) verse.verse: verse},
+      kjvVersesByNumber: {for (final verse in kjvVerses) verse.verse: verse},
       notesByVerse: notesByVerse,
       sectionTitlesByVerse: sectionTitlesByVerse,
     );
   }
 
-  void _scrollToInitialVerse(List<BibleVerse> verses) {
+  void _scrollToInitialVerse(List<int> verseNumbers) {
     if (!widget.shouldScrollToInitialVerse) {
       return;
     }
@@ -111,7 +148,7 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
       return;
     }
 
-    final exists = verses.any((verse) => verse.verse == widget.initialVerse);
+    final exists = verseNumbers.contains(widget.initialVerse);
 
     if (!exists) {
       return;
@@ -133,88 +170,131 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
     });
   }
 
-  void _toggleVerse(BibleVerse verse) {
+  void _toggleVerse(int verseNumber) {
     setState(() {
-      if (_selectedVerses.contains(verse.verse)) {
-        _selectedVerses.remove(verse.verse);
+      if (_selectedVerses.contains(verseNumber)) {
+        _selectedVerses.remove(verseNumber);
       } else {
-        _selectedVerses.add(verse.verse);
+        _selectedVerses.add(verseNumber);
       }
     });
 
-    widget.onVerseSelected(chapter: widget.chapter, verse: verse.verse);
+    widget.onVerseSelected(chapter: widget.chapter, verse: verseNumber);
   }
 
-  void _selectVerseForAction(BibleVerse verse) {
-    if (!_selectedVerses.contains(verse.verse)) {
+  void _selectVerseForAction(int verseNumber) {
+    if (!_selectedVerses.contains(verseNumber)) {
       setState(() {
-        _selectedVerses.add(verse.verse);
+        _selectedVerses.add(verseNumber);
       });
     }
 
-    widget.onVerseSelected(chapter: widget.chapter, verse: verse.verse);
+    widget.onVerseSelected(chapter: widget.chapter, verse: verseNumber);
   }
 
   String _buildVerseCopyText({
-    required BibleVerse verse,
-    required Map<int, List<BibleNote>> notesByVerse,
+    required int verseNumber,
+    required _ChapterRenderData data,
   }) {
     final buffer = StringBuffer();
 
-    buffer.write(
-      '${widget.book.nameKo} ${widget.chapter}:${verse.verse} ${verse.verseText}',
-    );
+    final koVerse = data.koVersesByNumber[verseNumber];
+    final kjvVerse = data.kjvVersesByNumber[verseNumber];
 
-    final notes = notesByVerse[verse.verse] ?? [];
+    switch (widget.displayMode) {
+      case BibleDisplayMode.krv:
+        if (koVerse != null) {
+          buffer.write(
+            '${widget.book.nameKo} ${widget.chapter}:$verseNumber ${koVerse.verseText}',
+          );
+        }
+        break;
 
-    for (final note in notes) {
-      final marker = note.marker.trim();
-      final noteText = note.noteText.trim();
+      case BibleDisplayMode.kjv:
+        if (kjvVerse != null) {
+          final kjvLabel =
+              widget.kjvBookShortName ??
+              widget.kjvBookNameEn ??
+              widget.book.nameKo;
 
-      if (marker.isEmpty && noteText.isEmpty) {
-        continue;
+          buffer.write(
+            '$kjvLabel ${widget.chapter}:$verseNumber ${kjvVerse.verseText}',
+          );
+        }
+        break;
+
+      case BibleDisplayMode.krvKjv:
+        if (koVerse != null) {
+          buffer.write(
+            '${widget.book.nameKo} ${widget.chapter}:$verseNumber ${koVerse.verseText}',
+          );
+        }
+
+        if (kjvVerse != null) {
+          final kjvLabel =
+              widget.kjvBookShortName ??
+              widget.kjvBookNameEn ??
+              widget.book.nameKo;
+
+          if (buffer.isNotEmpty) {
+            buffer.write('\n');
+          }
+
+          buffer.write(
+            '$kjvLabel ${widget.chapter}:$verseNumber ${kjvVerse.verseText}',
+          );
+        }
+        break;
+    }
+
+    if (!widget.displayMode.isEnglishOnly) {
+      final notes = data.notesByVerse[verseNumber] ?? [];
+
+      for (final note in notes) {
+        final marker = note.marker.trim();
+        final noteText = note.noteText.trim();
+
+        if (marker.isEmpty && noteText.isEmpty) {
+          continue;
+        }
+
+        if (marker.isNotEmpty && noteText.isNotEmpty) {
+          buffer.write('\n  $marker $noteText');
+          continue;
+        }
+
+        if (marker.isNotEmpty) {
+          buffer.write('\n  $marker');
+          continue;
+        }
+
+        buffer.write('\n  $noteText');
       }
-
-      if (marker.isNotEmpty && noteText.isNotEmpty) {
-        buffer.write('\n  $marker $noteText');
-        continue;
-      }
-
-      if (marker.isNotEmpty) {
-        buffer.write('\n  $marker');
-        continue;
-      }
-
-      buffer.write('\n  $noteText');
     }
 
     return buffer.toString();
   }
 
-  List<BibleVerse> _getSelectedVerseObjects(List<BibleVerse> allVerses) {
-    final selected = allVerses
-        .where((verse) => _selectedVerses.contains(verse.verse))
+  List<int> _getSelectedVerseNumbers(_ChapterRenderData data) {
+    final selected = data.verseNumbers
+        .where((verseNumber) => _selectedVerses.contains(verseNumber))
         .toList();
 
-    selected.sort((a, b) => a.verse.compareTo(b.verse));
-
+    selected.sort();
     return selected;
   }
 
-  Future<void> _copySelectedVerses({
-    required List<BibleVerse> allVerses,
-    required Map<int, List<BibleNote>> notesByVerse,
-  }) async {
-    final selectedVerseObjects = _getSelectedVerseObjects(allVerses);
+  Future<void> _copySelectedVerses({required _ChapterRenderData data}) async {
+    final selectedVerseNumbers = _getSelectedVerseNumbers(data);
 
-    if (selectedVerseObjects.isEmpty) {
+    if (selectedVerseNumbers.isEmpty) {
       return;
     }
 
-    final copyText = selectedVerseObjects
+    final copyText = selectedVerseNumbers
         .map(
-          (verse) =>
-              _buildVerseCopyText(verse: verse, notesByVerse: notesByVerse),
+          (verseNumber) =>
+              _buildVerseCopyText(verseNumber: verseNumber, data: data),
         )
         .join('\n\n');
 
@@ -228,7 +308,7 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${selectedVerseObjects.length}개 절을 복사했습니다.'),
+        content: Text('${selectedVerseNumbers.length}개 절을 복사했습니다.'),
         duration: const Duration(seconds: 1),
       ),
     );
@@ -247,11 +327,11 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
   }
 
   Future<void> _openBookmarkSaveSheet({
-    required List<BibleVerse> allVerses,
+    required _ChapterRenderData data,
   }) async {
-    final selectedVerseObjects = _getSelectedVerseObjects(allVerses);
+    final selectedVerseNumbers = _getSelectedVerseNumbers(data).toSet();
 
-    if (selectedVerseObjects.isEmpty) {
+    if (selectedVerseNumbers.isEmpty) {
       ScaffoldMessenger.of(context).clearSnackBars();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -262,10 +342,6 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
       );
       return;
     }
-
-    final selectedVerseNumbers = selectedVerseObjects
-        .map((verse) => verse.verse)
-        .toSet();
 
     final result = await showModalBottomSheet<BookmarkSaveResult>(
       context: context,
@@ -301,11 +377,10 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
 
   Future<void> _showVerseActionMenu({
     required Offset globalPosition,
-    required BibleVerse verse,
-    required List<BibleVerse> allVerses,
-    required Map<int, List<BibleNote>> notesByVerse,
+    required int verseNumber,
+    required _ChapterRenderData data,
   }) async {
-    _selectVerseForAction(verse);
+    _selectVerseForAction(verseNumber);
 
     final selectedCount = _selectedVerses.length;
 
@@ -343,21 +418,32 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
     }
 
     if (action == _VerseAction.copy) {
-      await _copySelectedVerses(
-        allVerses: allVerses,
-        notesByVerse: notesByVerse,
-      );
+      await _copySelectedVerses(data: data);
       return;
     }
 
     if (action == _VerseAction.bookmark) {
-      await _openBookmarkSaveSheet(allVerses: allVerses);
+      await _openBookmarkSaveSheet(data: data);
     }
+  }
+
+  double _verseNumberWidth(int verseNumber) {
+    final digits = verseNumber.toString().length;
+
+    if (digits <= 1) {
+      return 22;
+    }
+
+    if (digits == 2) {
+      return 30;
+    }
+
+    return 38;
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<ChapterContentData>(
+    return FutureBuilder<_ChapterRenderData>(
       future: _chapterContentFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -376,7 +462,7 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
 
         final data = snapshot.data;
 
-        if (data == null || data.verses.isEmpty) {
+        if (data == null || data.verseNumbers.isEmpty) {
           return ColoredBox(
             color: widget.bodyBackgroundColor,
             child: Center(
@@ -388,7 +474,7 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
           );
         }
 
-        _scrollToInitialVerse(data.verses);
+        _scrollToInitialVerse(data.verseNumbers);
 
         return ColoredBox(
           color: widget.bodyBackgroundColor,
@@ -397,24 +483,47 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ...data.verses.map((verse) {
-                  final isSelected = _selectedVerses.contains(verse.verse);
+                ...data.verseNumbers.map((verseNumber) {
+                  final isSelected = _selectedVerses.contains(verseNumber);
 
                   final key = _verseKeys.putIfAbsent(
-                    verse.verse,
+                    verseNumber,
                     () => GlobalKey(),
                   );
 
+                  final koVerse = data.koVersesByNumber[verseNumber];
+                  final kjvVerse = data.kjvVersesByNumber[verseNumber];
+
                   final rawSectionTitles =
-                      data.sectionTitlesByVerse[verse.verse] ?? [];
+                      data.sectionTitlesByVerse[verseNumber] ??
+                      const <BibleSectionTitle>[];
 
-                  final rawNotes = data.notesByVerse[verse.verse] ?? [];
+                  final rawNotes =
+                      data.notesByVerse[verseNumber] ?? const <BibleNote>[];
 
-                  final displayedVerse = DisplayedVerseData.from(
-                    verse: verse,
-                    sectionTitles: rawSectionTitles,
-                    notes: rawNotes,
-                  );
+                  DisplayedVerseData? displayedVerse;
+                  if (koVerse != null) {
+                    displayedVerse = DisplayedVerseData.from(
+                      verse: koVerse,
+                      sectionTitles: rawSectionTitles,
+                      notes: rawNotes,
+                    );
+                  }
+
+                  final mainVerseText = switch (widget.displayMode) {
+                    BibleDisplayMode.krv => displayedVerse?.verseText ?? '',
+                    BibleDisplayMode.kjv => kjvVerse?.verseText ?? '',
+                    BibleDisplayMode.krvKjv => displayedVerse?.verseText ?? '',
+                  };
+
+                  final sectionTitles = displayedVerse?.sectionTitles ?? [];
+                  final notes = displayedVerse?.notes ?? [];
+                  final englishText = widget.displayMode.isBilingual
+                      ? (kjvVerse?.verseText ?? '')
+                      : '';
+
+                  final numberWidth = _verseNumberWidth(verseNumber);
+                  final textLeftPadding = numberWidth + 1;
 
                   final verseNumberStyle = AppTextStyles.verseNumber(
                     widget.fontSize,
@@ -424,29 +533,31 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
                     widget.fontSize,
                   ).copyWith(height: 1.45);
 
+                  final englishTextStyle = AppTextStyles.verseText(
+                    (widget.fontSize - 2).clamp(10.0, 22.0).toDouble(),
+                  ).copyWith(height: 1.45, color: AppColors.textSecondary);
+
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (displayedVerse.sectionTitles.isNotEmpty)
-                        SectionTitleBlock(
-                          sectionTitles: displayedVerse.sectionTitles,
-                        ),
+                      if (!widget.displayMode.isEnglishOnly &&
+                          sectionTitles.isNotEmpty)
+                        SectionTitleBlock(sectionTitles: sectionTitles),
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () {
-                          _toggleVerse(verse);
+                          _toggleVerse(verseNumber);
                         },
                         onLongPressStart: (details) {
                           _showVerseActionMenu(
                             globalPosition: details.globalPosition,
-                            verse: verse,
-                            allVerses: data.verses,
-                            notesByVerse: data.notesByVerse,
+                            verseNumber: verseNumber,
+                            data: data,
                           );
                         },
                         child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 160),
                           key: key,
+                          duration: const Duration(milliseconds: 160),
                           width: double.infinity,
                           margin: const EdgeInsets.only(bottom: 2),
                           padding: const EdgeInsets.symmetric(
@@ -458,12 +569,12 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
                                 ? AppColors.verseHighlight
                                 : Colors.transparent,
                             borderRadius: BorderRadius.circular(12),
-                            border: isSelected
-                                ? Border.all(
-                                    color: AppColors.verseHighlightBorder,
-                                    width: 1,
-                                  )
-                                : null,
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.verseHighlightBorder
+                                  : Colors.transparent,
+                              width: 1,
+                            ),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,26 +583,42 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   SizedBox(
-                                    width: 22,
+                                    width: numberWidth,
                                     child: Text(
-                                      '${verse.verse}',
+                                      '$verseNumber',
                                       style: verseNumberStyle,
                                     ),
                                   ),
-                                  const SizedBox(width: 3),
+                                  const SizedBox(width: 1),
                                   Expanded(
                                     child: Text(
-                                      displayedVerse.verseText,
+                                      mainVerseText,
                                       style: verseTextStyle,
                                     ),
                                   ),
                                 ],
                               ),
-                              if (displayedVerse.notes.isNotEmpty)
+                              if (widget.displayMode.isBilingual &&
+                                  englishText.isNotEmpty)
                                 Padding(
-                                  padding: const EdgeInsets.only(left: 25),
+                                  padding: EdgeInsets.only(
+                                    left: textLeftPadding,
+                                    top: 2,
+                                  ),
+                                  child: Text(
+                                    englishText,
+                                    style: englishTextStyle,
+                                  ),
+                                ),
+                              if (!widget.displayMode.isEnglishOnly &&
+                                  notes.isNotEmpty)
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                    left: textLeftPadding,
+                                    top: 2,
+                                  ),
                                   child: NoteBlock(
-                                    notes: displayedVerse.notes,
+                                    notes: notes,
                                     fontSize: widget.fontSize,
                                   ),
                                 ),
@@ -512,3 +639,19 @@ class _ChapterReaderPageState extends State<ChapterReaderPage> {
 }
 
 enum _VerseAction { copy, bookmark }
+
+class _ChapterRenderData {
+  final List<int> verseNumbers;
+  final Map<int, BibleVerse> koVersesByNumber;
+  final Map<int, KjvBibleVerse> kjvVersesByNumber;
+  final Map<int, List<BibleNote>> notesByVerse;
+  final Map<int, List<BibleSectionTitle>> sectionTitlesByVerse;
+
+  const _ChapterRenderData({
+    required this.verseNumbers,
+    required this.koVersesByNumber,
+    required this.kjvVersesByNumber,
+    required this.notesByVerse,
+    required this.sectionTitlesByVerse,
+  });
+}

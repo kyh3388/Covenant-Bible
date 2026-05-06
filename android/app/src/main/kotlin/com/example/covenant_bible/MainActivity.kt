@@ -1,4 +1,4 @@
-package com.example.covenant_bible
+package com.kyh.covenant_bible
 
 import io.flutter.embedding.android.FlutterActivity
 

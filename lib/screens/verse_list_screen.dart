@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../database/bible_database.dart';
+import '../database/ko_bible_database.dart';
 import '../models/bible_book.dart';
 import '../models/bible_verse.dart';
 import 'bible_reader_screen.dart';
@@ -28,7 +28,7 @@ class _VerseListScreenState extends State<VerseListScreen> {
   void initState() {
     super.initState();
 
-    _versesFuture = BibleDatabase.instance.getVerses(
+    _versesFuture = KoBibleDatabase.instance.getVerses(
       bookId: widget.book.bookId,
       chapter: widget.chapter,
     );

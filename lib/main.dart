@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
-import 'database/bible_database.dart';
+import 'database/ko_bible_database.dart';
 import 'models/bible_book.dart';
 import 'screens/bible_reader_screen.dart';
 import 'services/recent_read_service.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const CovenantBibleApp());
 }
 
@@ -45,7 +46,7 @@ class _AppStartScreenState extends State<AppStartScreen> {
 
     final recentLocation = await recentReadService.getRecentLocation();
 
-    BibleBook? book = await BibleDatabase.instance.getBookById(
+    BibleBook? book = await KoBibleDatabase.instance.getBookById(
       recentLocation.bookId,
     );
 
@@ -53,7 +54,7 @@ class _AppStartScreenState extends State<AppStartScreen> {
     int verse = recentLocation.verse;
 
     if (book == null) {
-      book = await BibleDatabase.instance.getBookById(
+      book = await KoBibleDatabase.instance.getBookById(
         RecentReadService.defaultBookId,
       );
 
@@ -91,7 +92,7 @@ class _AppStartScreenState extends State<AppStartScreen> {
           return Scaffold(
             body: Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
                 child: Text('앱 시작 중 오류가 발생했습니다.', textAlign: TextAlign.center),
               ),
             ),

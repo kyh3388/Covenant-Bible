@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
 
 class AppTheme {
   static ThemeData light() {
-    return ThemeData(
+    final baseTheme = ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
       scaffoldBackgroundColor: AppColors.background,
@@ -28,6 +29,14 @@ class AppTheme {
       dividerTheme: const DividerThemeData(
         color: AppColors.divider,
         thickness: 1,
+      ),
+    );
+
+    return baseTheme.copyWith(
+      // 수정: 앱 전체 기본 글꼴을 Noto Sans KR로 통일
+      textTheme: GoogleFonts.notoSansKrTextTheme(baseTheme.textTheme),
+      primaryTextTheme: GoogleFonts.notoSansKrTextTheme(
+        baseTheme.primaryTextTheme,
       ),
     );
   }
