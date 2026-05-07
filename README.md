@@ -2,4 +2,4 @@
 구글 플레이스토어에 "약속의 책 성경" 이라고 검색하시면 다운받아 보실 수 있습니다.
 
 # 이미지
-<img src="https://github.com/kyh3388/Covenant-Bible/issues/1#issue-4395485812" width="200" height="200"/>
+<img width="200" height="200" alt="Image" src="https://github.com/user-attachments/assets/dd8628de-4052-42c0-97f8-497130299222" />
